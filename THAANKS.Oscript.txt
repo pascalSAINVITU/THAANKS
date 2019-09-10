@@ -3,24 +3,22 @@
    init: "{
       // THAANKS, ask a user to trigger an AA for reward, can be also overtaken by a bot
       // to use it please provide: data.data.help = true and optional data.helper and data.seconds
-      $OWNER = "O7NYCFUL5XIJTYE3O4MKGMGMTN6ATQAJ"; // to adjust parameters
+      $INSTRUCTIONS_ASK_HELP = "To propose a reward for a future trigger, use 'need_help' = <true> with optionaly 'helper' = <address> if you want to propose an helper, 'private_mode = true' to force the trigger to be done byt the specific helper";
+      $INSTRUCTIONS_TRIGGER_FOR_REWARD = "Use 'token = <received token>'. ";
+      $INSTRUCTIONS_SUBSCRIBE_AS_GOOD_GUY = "To subscribe as an helper and have a chance to be pick up use: 'subscribe'='true'. ";
+      $INSTRUCTIONS_UNSUBSCRIBE = "To unsubscribe use: 'unsubscribe'='true'. ";
+      $AA_OWNER = "O7NYCFUL5XIJTYE3O4MKGMGMTN6ATQAJ"; // to adjust parameters
+      $DEFAULT_ACCEPTABLE_DELAY = 10*24*60*60;
+
+      $user = trigger.address;
+      $i = trigger.data;
 
 
-      if (trigger.data.help) // trigger coming from an aa
-      {
-         $good_guy = var["good_guys_"||number_from_seed(timestamp,1,$number_of_good_guys)];
-         $helper = trigger.data.helper otherwise $good_guy;
-         $aa = trigger.address;
-         $reward = trigger.output[[asset!=base]].amount otherwise trigger.output[[asset=base]].amount otherwise 0;
-         $reward_asset = trigger.output[[asset!=base]].asset otherwise "base";
-         $delay = trigger.data.seconds otherwise 0;
-      }
-      else
-      {
-         $helper = trigger.address;
-         $aa = trigger.data.aa otherwise var[$helper] otherwise bounce ("Don't know which aa to help!");
+         $helper =  $user otherwise var[$helper];
+           
          $reward = var[$aa||"_reward"];
          $reward_asset = var[$aa||"_asset"];
+         $requested_time = var[$aa||"_requested_time"];
          $delay = var[$aa||"_delay"];
       }
 
@@ -29,97 +27,84 @@
    messages: {
       cases: [
          { // looking for an helper to trigger an aa in the futur
-            if: "{ trigger.data.helper}",
+            if: "{ $i.ask_help }",
             init: "{
+               $aa = $i.aa otherwise $user;
+               $requested_time = $i.requested_time otherwise timestamp;
+               $acceptable_delay = $i.acceptable_delay otherwise $DEFAULT_ACCEPTABLE_DELAY;
+               $token = sha256($aa||$requested_time);
+               $reward_amount = trigger.output[[asset!=base]].amount otherwise trigger.output[[asset=base]].amount otherwise 0;
+               $reward_asset = trigger.output[[asset!=base]].asset otherwise "base";
+               $good_guy_count = var["good_guy_count"];
+               $helper = $i.helper otherwise $good_guy_count > 0 ? var["good_guys_"||number_from_seed(timestamp,0, $good_guy_count)] otherwise bounce ("No helper defined ! ");
             }",
             messages: [
-               {
-                  app: "data",
-                  payload: {
-                     "message": "{"Get "||$reward||" "||$reward_asset||" if you are first to reply me in "||$delay||" seconds" }",
-                     "helped_aa ": "{$aa}"
-                  }
-               },
-               {
-                  app: "payment",
-                  payload: {
-                     asset: "base",
-                     outputs: [
-                        {
-                           address: "{$helper}",
-                           amount: "{1000}"
-                        }
-                     ]
-                  }
-               },
-               {
-                  app: "state",
-                  state: "{ 
-                  var[$helper] = $aa;
-                  var[$aa||"_reward"] = $reward;
-                  var[$aa||"_asset"] = $reward_asset;
-                  var[$aa||"_delay"] = $delay;
-                  var[$aa||"_request_time"] = timestamp;
-               }"
-               }
+               { app: "data", payload: {
+                     "message": "{"Get "||$reward||" "||$reward_asset||" if you are first to send back this 'token = <value>'' to me between "||timestamp_to_string($requested_time)||" and "||timestamp_to_string($requested_time+$acceptable_delay, 'datetime')}",
+                     "token": "{$token}"
+               } },
+               { app: "payment", payload: { asset: "base", outputs: [
+                        { address: "{$helper}", amount: "{4}" } // unsual amount to become the THAANKS signature
+               ] } },
+               { app: "state", state: "{ 
+                  var[$token||"_aa"] = $aa;    
+                  var[$token||"_helper"] = $helper;                  var[$token||"_private_mode"] = $i.private_mode;
+                  var[$token||"_reward_amount"] = $reward_amount;    var[$token||"_reward_asset"] = $reward_asset;
+                  var[$token||"_requested_time"] = $requested_time;  var[$token||"_acceptable_delay"] = $acceptable_delay;
+               }" }
+            ]
+         },
+         { 
+            if: "{ $i.token }",
+            init: "{ 
+               $token = $i.token otherwise bounce ("Don't know which aa to help, please!");
+               if (!var[$token||"_aa"]) bounce ("Too late someone was quicker (or you mistype the token)!"); 
+               
+            }",
+            messages: [
+               { app: "payment", payload: { asset: "{$reward_asset}", outputs: [ 
+                        { address: "{$helper}", amount: "{$reward_amount}"} 
+               ] } },
+               { app: "payment", payload: { asset: "base", outputs: [
+                        { address: "{$aa}", amount: "{1000}" }
+               ] } },
+               { app: "state", state: "{ 
+                  var[$token||"_aa"] = false;   
+                  var[$token||"_helper"] = false;                    var[$token||"_private_mode"] = false;
+                  var[$token||"_reward_amount"] = false;             var[$token||"_reward_asset"] = false;
+                  var[$token||"_requested_time"] = false;            var[$token||"_acceptable_delay"] = false;
+               }" }
             ]
          },
          { // Subscribe as an enthousiast helper;
-            if: "{ trigger.data.subscribe}",
+            if: "{ $i.subscribe }",
+            init: "{ if (var[$user]) bounce ("You are motivated, but once is enough!"); }",
+            messages: [ { app: "state", state: "{ 
+               var["good_guy_count"] += 1;
+               var[$user] = var["good_guy_count"];
+               var["good_guys_"||var["good_guy_count"]] = $user;
+               response['message'] = "Subscribed ^^. "; 
+            }" } ]
+         },
+         { // Unsubscribe as an enthousiast helper;
+            if: "{ $i.unsubscribe }",
+            init: "{ if (!var[$user]) bounce ("You were not register!"); }",
+            messages: [ { app: "state", state: "{ 
+               var["good_guy_count"] -= 1;
+               $number = var[ $user];
+               var[$user] = false;
+               var["good_guys_"||$number] = false;
+               response['message'] = "unsubscribed ^^. "; 
+            }" } ]
+         },
+         {  // default case
             init: "{ 
-               if (var[trigger.address]) bounce ("You are motivated, but once is enough!");
+               if ($user != $AA_OWNER) bounce ($INSTRUCTIONS_TRIGGER_FOR_REWARD||$INSTRUCTIONS_ASK_HELP||$INSTRUCTIONS_SUBSCRIBE_AS_GOOD_GUY||$INSTRUCTIONS_UNSUBSCRIBE); 
             }",
             messages: [
-               {
-                  app: "state",
-                  state: "{ 
-                     var[trigger.address] = true;
-                     var[$number_of_good_guys] +=1;
-                     var["good_guys_"||$number_of_good_guys] = trigger.address;
-                     response['message'] = "Subscribed"; 
-                  }"
-               }
-            ]
-         },
-         { // default too late=> bounce
-            init: "{
-            if (!var[$aa||"_reward"]) bounce ("Too late someone have triggered the aa already!");
-
-         }",
-            messages: [
-               {
-                  app: "payment",
-                  payload: {
-                     asset: "{$reward_asset}",
-                     outputs: [
-                        {
-                           address: "{$helper}",
-                           amount: "{$reward}"
-                        }
-                     ]
-                  }
-               },
-               {
-                  app: "payment",
-                  payload: {
-                     asset: "base",
-                     outputs: [
-                        {
-                           address: "{$aa}",
-                           amount: "{1000}"
-                        }
-                     ]
-                  }
-               },
-               {
-                  app: "state",
-                  state: "{ 
-                  var[$helper] = false;
-                  var[$aa||"_reward"] = false;
-                  var[$aa||"_asset"] = false;
-                  var[$aa||"_delay"] = false;
-               }"
-               }
+               { app: "payment", payload: { asset: "{'base'}", outputs: [ 
+                  { address: "{$AA_OWNER}", amount: "{$reward}"} 
+               ] } }
             ]
          }
       ]
