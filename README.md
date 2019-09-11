@@ -5,6 +5,7 @@ Can be use to ask a user to trigger (optionnaly at a given time and with a given
 ## Use cases
 * To use it please provide: 'data.ask_help = true' and optional 'data.helper = <address>' and 'data.requested_time = <timestamp>' 'data.acceptable_delay = <delay in second> and  'data.private = true'.
 * You can 'data.subscribe' and 'data.unsubscribe' as good guy to be picked if the AA doesn't specify a helper;
+* If trigger is late, the reward goes back to the aa;
   
 ## example of use
 * you want to trigger a draw in the futur with data feed  that should not be predicted
