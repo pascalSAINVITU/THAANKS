@@ -1,197 +1,145 @@
 {
 /*
-Check in explorer: https://testnetexplorer.obyte.org/#h6D471DhAl8aX0y0B0JhUi1RhGc1BhIgTLaDEieHFt8=
-Agent address: 22MSLRQXAEDRIWK6DC6WBPAZC36XEEPQ
-Check in explorer: https://testnetexplorer.obyte.org/#tbFbFmkA0ilidfJjMweX6hQWUIYOt0lPi+PL7CanAuo=
-Agent address: 7EE3HV3YQT347LDBNPM3SHFDGF5IGGOW
-Check in explorer: https://testnetexplorer.obyte.org/#iI8XYqV67X2504uqSO0dEhr9fWp1xIEE3HzTskY7s0o=
-Agent address: ZXNDB5LKMU762PBGGNUFAJ43FHDEXKNT
+Check in explorer: https://testnetexplorer.obyte.org/#zKopB8sd0+s0PDOtUjbVOOQSu8xRuwuQLaXI+umrjG0=
+Agent address: UHNH72MK4SENTB6OIC3GETMEPATCAP4P
+Check in explorer: https://testnetexplorer.obyte.org/#gedNOib0Mn1GCGdk7FY4g5EuiTVZwoEWz80nQ7HcXUk=
+Agent address: AJSPLVQVL5KHHQLNYU6EKHHVEW4PODCH
 */
-	init: "{
-		// admin
-			$AA_OWNER = "O7NYCFUL5XIJTYE3O4MKGMGMTN6ATQAJ"; //office_testnet_wallet
-			$AA_NAME = "FLAAP";
-		// secondary AAs
-			$LOPAVAA = "K6XFY4PODYMWPUELDOYG6UOJ3GQLMDMT";
-			$THAANKS = var[$LOPAVAA]["THAANKS_last_version"]; // getting user help for future trigger
-			$DANAA = var[$LOPAVAA]["DANAA_last_version"]; // last version of Dynamic Asset Name AA;
-		
-		// forever constantes
-			$TICKET_PRICE = 10000;
-			$ROUND_BUYING_PERIOD = 15*60; // seconds
-			$DRAWING_TIME_DELAY = 10*60; // seconds
-			$DRAWING_TIME_TOLERANCE = 10*60; // seconds
-			$PERCENTAGE_FOR_HELPER = 0.5;  // 0.5 %
-			$ATTESTOR = '35IT3ZYKEPQSCXG2F7A7KWNRAD3SZXN4'; // use for not so important random number generation
-		
-		// input variables
-			$asset = trigger.output[[asset!=base]].asset != "none" ? trigger.output[[asset!=base]].asset : "base";
-			$key = var[$DANAA][$asset||"_shortName"] otherwise $asset;
+		bounce_fees: { base: 10000 },
+		init: "{
+			// admin stuff
+				$AA_OWNER = "O7NYCFUL5XIJTYE3O4MKGMGMTN6ATQAJ"; // to collect the dust
+				$AA_NAME = "THAANKS";
+				$LOPAVAA = "YICOQCAWUSFBIQGBB4HUPQ23U37RA5WG"; // AA used to get last or popular version of other non-sensitives AA
+				$DANAA = var[$LOPAVAA]["DANAA_last_version"]; // get last version of DANAA, Dynamic Asset Names
 
-			$dead_line = var[$key||"_dead_line"] otherwise timestamp + $ROUND_BUYING_PERIOD;
-	}",
-	messages: {
-		cases: [
-			{ if: "{ (timestamp < ($dead_line)) and !(var[$key||"_draw_time"]) }",	// running, just buy ticket
-				init: "{ 
-					if (trigger.output[[asset=$asset]] != $TICKET_PRICE)
-						bounce ("Ticket price is "||$TICKET_PRICE||" "||$key);
-				}",
-				messages: [
-					{ 
-						app: "state", state: "{
-						$nop = $key||"_number_of_players";
-						var[$nop] = !!var[$nop] ? var[$nop] + 1 : 1;
-						var[$key||"_dead_line"] = $dead_line;
-						var[$key||"_player_"||var[$nop]] = trigger.address;
-						var[$key||"_balance"] = var[$key||"_balance"] ? 
-							var[$key||"_balance"] + trigger.output[[asset=$asset]] : 
-							trigger.output[[asset=$asset]];
-						
-						// if attested address, it plays a role in the seed
-						if (attestation[[attestors=$ATTESTOR, address=trigger.address, ifnone=false]])
-							var[$key||"_seed"] = sha256(var[$key||"_seed"]||trigger.address);
+			// intructions
+				$INSTRUCTIONS_USE_CASES = "Be first to use 'token = <received token>' after the request time and before the acceptable delay to receive the associated reward. To subscribe as an helper and have a chance to be picked up later use: 'subscribe = true'. To unsubscribe use: 'unsubscribe = true'. If your are an AA use at minimum 'ask_help = <true>'. ";
+				$INSTRUCTIONS_ASK_HELP = "Use 'ask_help = <true>' with optionaly 'helper = <address>' if you want to propose an helper. Use 'private_mode = true' to force the triggering to be done by the specific helper. If you need to be trigger after a given time, use 'request_time = <timestamp>' and if you want to give a dead line use 'acceptable_delay = <delay in seconds>'. ";
+			// definitive constantes	
+				$DEFAULT_ACCEPTABLE_DELAY = 10*24*60*60;
+			// trigger variables
+				$user = trigger.address;
+				$i = trigger.data;
+		}",
+   	messages: {
+      cases: [
+         { if: "{ !!$i.ask_help }", 		// looking for an helper to trigger an aa in the futur
+            init: "{
+							if ($i.ask_help != "true") bounce ($INSTRUCTIONS_ASK_HELP);
+							// preparing 
+								$aa = $i.aa otherwise $user;
+								$requested_time = $i.requested_time otherwise timestamp;
+								$acceptable_delay = !!$i.acceptable_delay ? $i.acceptable_delay : $DEFAULT_ACCEPTABLE_DELAY;
+								$received_amount = trigger.output[[asset!=base]].amount otherwise trigger.output[[asset=base]].amount;
+								$reward_amount = $received_amount - 1000;
+								$reward_asset = trigger.output[[asset!=base]].asset != "none" ? trigger.output[[asset!=base]].asset : "base";
+								$asset_nice_name = var[$DANAA][$reward_asset||"_shortName"] otherwise $reward_asset;
+							// defining helper
+								$good_guy_count = var["good_guy_count"] otherwise 0;
+								$helper = $i.helper otherwise $good_guy_count > 0 ? 
+									var["good_guy_"||number_from_seed(timestamp,0, $good_guy_count)] : bounce ("No good guy available, use 'helper = <address>'!");
+							// token used to store var about AA needs for a given time
+								$token = sha256($aa||$requested_time);
+            }",
+            messages: [
+							{ app: "data", payload: {
+								"message": "{"Get "||$reward_amount||" "||$asset_nice_name||" if you are first to send back this 'token = <token received below>'' to me between "||timestamp_to_string($requested_time)||" and "||timestamp_to_string($requested_time+$acceptable_delay, 'datetime')}",
+								"me": "{this_address}",
+								"token": "{$token}"
+							} },
+							{ app: "payment", payload: { asset: "base", outputs: [
+								{ address: "{$helper}", amount: "{4}" } // unsual amount to become the THAANKS signature
+							] } },
+							{ app: "state", state: "{ 
+								var[$token||"_aa"] = $aa;    
+								var[$token||"_helper"] = $helper;                  var[$token||"_private_mode"] = $i.private_mode;
+								var[$token||"_reward_amount"] = $reward_amount;    var[$token||"_reward_asset"] = $reward_asset;
+								var[$token||"_requested_time"] = $requested_time;  var[$token||"_acceptable_delay"] = $acceptable_delay;
+								response['message'] = $helper||" has been asked for help ^^"; 
+							}" }
+            ]
+         },
+         { if: "{ $i.token }", 				// return token in time to get reward
+            init: "{ 
+							// existing?
+               	$token = $i.token otherwise bounce ($INSTRUCTIONS_TRIGGER_FOR_REWARD);
+							// been overtaken?
+								$aa = var[$token||"_aa"];
+              	if (!$aa) bounce ("Too late someone was quicker (or you mistype the token)!"); 
 
-						response['message'] = "You have enter the lottery ^^"; 
-						}"
-					}
-				]
-			},
-			{ if: "{ ( (timestamp > $dead_line)) and !(var[$key||"_draw_time"]) }",	// buy last ticket and start the draw
-				init: "{ 
-					$buy_last_ticket = trigger.output[[asset=$asset]] >= $TICKET_PRICE;
-					if ($buy_last_ticket)
-						$reimbursement = trigger.output[[asset=$asset]] - $TICKET_PRICE;
-					else
-						$reimbursement = trigger.output[[asset=$asset]] - 1000;
-					// delay before we draw with seed based only on time variable data
-					$draw_time = timestamp + $DRAWING_TIME_DELAY;
-					// pick a helper from the players, but someone else or a bot will be able to trigger for the reward
-					$old_nop = var[$key||"_number_of_players"] otherwise 0;
-					$nop = $old_nop+1;
-					
-					if ($nop>1) // si un seul jouer pas tirage au sort
-						$helper = var[$key||"_player_"||number_from_seed(var[$key||"_seed"], 1, $nop )];
-					else
-						$helper = var[$key||"_player_1"];
-					
-					// calcul reward
-					$temp = round (var[$key||"_balance"] * $PERCENTAGE_FOR_HELPER / 100);
-					$reward = ($temp > 10000) ? $temp : 10000;
-				}",
-				messages: [ // sending reward to the one that will trigger at the forced time
-					{
-						app: "data", payload: {
-						ask_help:  "{ true }",
-						// private:  "{ false }",
-						helper: "{ $helper }",
-						requested_time: "{ $draw_time }",
-						acceptable_delay: "{ $DRAWING_TIME_TOLERANCE }",
-						}
-					},
-					{
-						app: "payment",payload: { asset: "{ $asset }",outputs: [
-							{  address: "{ $THAANKS }",amount: "{ $reward }" },
-							{  address: "{ trigger.address }", amount: "{ $reimbursement }" }
-						]
-						}
-					},
-					{   
-						app: "state", state: "{
-						if($buy_last_ticket)
-						{
-							var[$key||"_number_of_players"] = $nop;
-							var[$key||"_player_"||$nop] = trigger.address;
-							var[$key||"_balance"] += trigger.output[[asset=$asset]]-1000;
-							response['message'] = "You have enter the lottery, and trigger the draw ^^"; 
-						}
-						else
-							response['message'] = "You have trigger the draw ^^ "; 
-						
-						var[$key||"_balance"] -= $reward;
-						var[$key||"_seed"] = $helper; // for next helper draw if necessary
-						var[$key||"_draw_time"] = $draw_time;
-						}"
-					}
-				]
-			},
-			{ if: "{ !!var[$key||"_draw_time"] and var[$key||"_draw_time"] > timestamp }",	// try to draw before draw time
-				messages: [ // sending reward to the one that will trigger at the forced time
-					{   
-						app: "state",  state: "{
-						bounce ("Too early draw time is set to "|| var[$key||"_draw_time"]);
-						}"
-					}
-				]
-			},
-			{ if: "{ !!var[$key||"_draw_time"] and timestamp < var[$key||"_draw_time"] + $DRAWING_TIME_TOLERANCE }",	// time to draw !!
-				init: "{ 
-					// all time variable fixed in the dag
-					$timestamp =  data_feed[[oracles='OPNUXBRSSQQGHKQNEPD2GLWQYEUY5XLD', feed_name='timestamp']];
-					$total_cap =  data_feed[[oracles='F4KHJUCLJKY4JV7M5F754LAJX4EB7M4N', feed_name='TOTAL_CAP']];
-					$eth_btc_price =  data_feed[[oracles='F4KHJUCLJKY4JV7M5F754LAJX4EB7M4N', feed_name='ETH_BTC']];
-
-					// and the winner is
-					$draw_seed = $timestamp||$total_cap||$bitcoin_hash||$eth_btc_price;
-					$winner_num = number_from_seed($draw_seed, 1, $key||"_number_of_players");
-					$winner = var["_player_"||$winner_num];
-				}",
-				messages: [ // pay the guy!
-					{
-						app: "data", payload: {
-						message:  "{ "You won the lottery!" }",
-						}
-					},
-					{
-						app: "payment", payload: { asset: "{ $asset }", outputs: [
-						{ address: "{ $winner }", amount: "{ var[$key||"_balance"] }" }
-						]}
-					},
-					{   
-						app: "state", 
-						state: "{
-						var[$key||"_draw_time"] = false;    var[$key||"_dead_line"] = timestamp + $ROUND_BUYING_PERIOD;
-						var[$key||"_balance"] = false;      var[$key||"_number_of_players"] = false;
-						}"
-					}
-				]
-			},
-			{ if: "{ !!var[$key||"_draw_time"] and timestamp > var[$key||"_draw_time"] + $DRAWING_TIME_TOLERANCE }",	// too late lets pick a draw time again and hope the next helper will help
-			
-				init: "{ 
-					// delay before we draw with seed based only on time variable data
-					$draw_time = number_from_seed(var[$key||"_seed"], $drawing_time_min, $drawing_time_max );
-					// pick a helper from the players, but someone else or a bot will be able to trigger for the reward
-					$helper = var[$key||"_player_"||number_from_seed($draw_time, 1, var[$key||"_number_of_players"])];
-					$temp = round (var[$key||"_balance"] * $PERCENTAGE_FOR_HELPER / 100);
-					$reward = ($temp > 10000) ? $temp : 10000;
-				}",
-				messages: [ // sending reward to the one that will trigger at the forced time
-					{
-						app: "data", payload: {
-						help:  "{ true }",        helper: "{ $helper }",
-						time: "{ $draw_time }",   delay: "{ $DRAWING_TIME_TOLERANCE }",
-						}
-					},
-					{
-						app: "payment", payload: { asset: "{ $asset }", outputs: [
-						{ address: "{ $THAANKS }", amount: "{ $reward }" },
-						]}
-					},
-					{   
-						app: "state",  state: "{
-						var[$key||"_draw_time"] = $draw_time;
-						var[$key||"_balance"] -= $reward;
-						var[$key||"_seed"] = $helper;
-						
-						response['message'] = "AA was not triggered in time, and other random draw time as been piced and a user as been asked for help."; 
-						}"
-					}
-				]
-			},
-			{	// default case bounce instruction
-				messages: [ { app: "state",  state: "{ bounce ($INSTRUCTIONS);}"} ]
-			}
-		]
-	}
+							// too early ? 
+								$requested_time = var[$token||"_requested_time"];
+								if ($requested_time > timestamp)bounce ("Too early, try at "||timestamp_to_string($requested_time));
+							
+							// too late ?
+								$too_late = timestamp > $requested_time + var[$token||"_acceptable_delay"];
+							
+							// private ?
+								if (!!var[$token||"_private_mode"])
+									if (var[$token||"_helper"] != $user) bounce ("You are not allow to get this private reward !");
+							
+							// prepare rewards !
+								$bytes = trigger.output[[asset=base]].amount - 2000; // to post this TX and to give 1000 to AA
+								$reward_in_other = var[$token||"_reward_asset"] != "base" ? var[$token||"_reward_amount"] : false;
+								if ($too_late)
+								{
+									$bytes_for_user = $bytes + 2000; // at least send back all the bytes spent...
+									$bytes_for_aa = var[$token||"_reward_asset"] == "base" ? var[$token||"_reward_amount"]-1000 : 0;
+								}
+								else
+								{
+									$bytes_for_user = var[$token||"_reward_asset"] == "base" ? var[$token||"_reward_amount"] + $bytes: $bytes;
+									$bytes_for_aa = 1000;
+								}
+            }",
+            messages: [
+								{ if: '{ !!$reward_in_other }', app: "payment",  payload: { asset: "{ var[$token||"_reward_asset"] }", outputs: [
+									{ address: "{ $too_late ? $aa : $user }", amount: "{ $reward_in_other }" } ] } 
+								},
+								{ app: "payment", payload: { asset: "base", outputs: [
+									{ address: "{ $user }", amount: "{ $bytes_for_user }" },
+									{ address: "{ $aa }", amount: "{ $bytes_for_aa }" } ]}
+								},
+								{ app: "state", state: "{ 
+									var[$token||"_aa"] = false;   
+									var[$token||"_helper"] = false;                    var[$token||"_private_mode"] = false;
+									var[$token||"_reward_amount"] = false;             var[$token||"_reward_asset"] = false;
+									var[$token||"_requested_time"] = false;            var[$token||"_acceptable_delay"] = false;
+									response['message'] = $too_late ? "Too late, sorry !" : $user||" has been rewarded ^^"; 
+								}" }
+            ]
+         },
+         { if: "{ $i.subscribe }", 		// Subscribe as an enthousiast helper;
+            init: "{ if (var[$user]) bounce ("You are motivated, but once is enough!"); }",
+            messages: [ { app: "state", state: "{ 
+							var["good_guy_count"] += 1;
+							var["good_guy_"||$user||"_id"] = var["good_guy_count"];
+							var["good_guy_"||var["good_guy_count"]] = $user;
+							response['message'] = "Subscribed ^^. "; 
+            }" } ]
+         },
+         { if: "{ $i.unsubscribe }", 	// Unsubscribe as an enthousiast helper;
+            
+            init: "{ if (!var[$user]) bounce ("You were not register!"); }",
+            messages: [ { app: "state", state: "{ 
+               var["good_guy_count"] -= 1;
+               $id = var["good_guys_"||$user||"_id"];
+               var["good_guy_"||$user||"_id"] = false;
+               var["good_guy_"||$id] = false;
+               response['message'] = "Unsubscribed ^^. "; 
+            }" } ]
+         },
+         {  // default case
+            init: "{ 
+               if ($user != $AA_OWNER) bounce ($INSTRUCTIONS_USE_CASES); 
+            }",
+            messages: [
+               { app: "payment", payload: { asset: "{'base'}", outputs: [ 
+                  { address: "{$AA_OWNER}", amount: "{$reward}"} 
+               ] } }
+            ]
+         }
+      ]
+   	}
 }
