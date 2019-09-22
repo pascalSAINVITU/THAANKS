@@ -3,7 +3,7 @@
 Can be use to ask a user to trigger (optionnaly at a given time and with a given acceptable delay) an AA for a reward, can optionnaly be overtaken by other users or bots (if not in private mode)
 
 ## Use cases
-* To use it please provide: 'data.ask_help = true' and optional 'data.helper = <address>' and 'data.requested_time = <timestamp>' 'data.acceptable_delay = <delay in second> and  'data.private = true'.
+* To use it please provide: 'data.ask_help = true' and optional 'data.helper = <<address>>' and 'data.requested_time = <timestamp>' 'data.acceptable_delay = <delay in second> and  'data.private = true'.
 * You can 'data.subscribe' and 'data.unsubscribe' as good guy to be picked if the AA doesn't specify a helper;
 * If trigger is late, the reward goes back to the aa;
   
